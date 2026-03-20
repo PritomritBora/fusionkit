@@ -15,3 +15,5 @@ dependencies:
     - open3d
     - nuscenes-devkit
     - pyquaternion
+    - streamlit
+    - plotly
