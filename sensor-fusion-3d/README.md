@@ -1,56 +1,104 @@
-# Multi-Sensor 3D Scene Reconstruction and Cinematic Visualization
+# FusionKit
 
-Fuse camera (RGB), LiDAR (depth), and IMU (motion) data to reconstruct a precise 3D environment and camera trajectory, then visualize it inside Unreal Engine.
+A modular, dataset-agnostic sensor fusion pipeline for 3D mapping and localization.
+Combines camera, LiDAR, GPS, and IMU data to produce fused trajectories and 3D point cloud maps.
 
-## Pipeline Overview
+## The Problem
+
+Most sensor fusion implementations are tightly coupled to a single dataset format.
+Switching from KITTI to nuScenes, or from a recorded dataset to a live ROS bag, requires
+rewriting large parts of the pipeline. FusionKit solves this by separating the data layer
+from the algorithms — plug in any data source, get the same pipeline.
+
+## What it does
 
 ```
-Data Ingestion → Calibration → Localization → Reconstruction → Enhancement → Unreal Engine
+Camera ──────┐
+LiDAR  ──────┼──► Calibration ──► Visual Odometry ──► EKF Fusion ──► 3D Map
+GPS/IMU ─────┘                                    ↗
 ```
 
-## Stages
+- calibration: projects LiDAR points into camera frame, produces colored point clouds
+- visual odometry: ORB feature matching + essential matrix decomposition for pose estimation
+- EKF fusion: fuses VO position with GPS/IMU to correct drift
+- 3D mapping: accumulates RGB-colored LiDAR frames into a global point cloud map
 
-1. **Data Ingestion** — Load and sync RGB, LiDAR, IMU from KITTI/nuScenes
-2. **Calibration** — Align sensors into a common coordinate frame
-3. **Localization** — Visual odometry + EKF for trajectory estimation
-4. **Reconstruction** — Accumulate LiDAR frames into a global point cloud
-5. **Enhancement** — Convert to Gaussian Splat or mesh for Unreal
-6. **Unreal Integration** — Import mesh + trajectory, cinematic sequencer
-7. **Evaluation** — RMSE, drift, density metrics
+## Current Status
 
-## Setup
+| Stage | Status |
+|-------|--------|
+| Data ingestion (KITTI Raw) | done |
+| Sensor calibration | done |
+| Visual odometry | done |
+| EKF fusion (VO + GPS + IMU) | done |
+| 3D map reconstruction | done |
+| Evaluation (ATE/RTE) | pending |
+| Mesh export | pending |
+| nuScenes loader | planned |
+| EuRoC loader | planned |
+| ROS bag loader | planned |
+
+## Planned: Dataset Interface
+
+The goal is a single `BaseLoader` interface that any dataset or live sensor stream implements.
+The entire pipeline runs unchanged regardless of the data source.
+
+```python
+class BaseLoader(ABC):
+    def __len__(self) -> int: ...
+    def load_image(self, idx: int) -> np.ndarray: ...       # (H, W, 3)
+    def load_lidar(self, idx: int) -> np.ndarray: ...       # (N, 4) x,y,z,intensity
+    def load_calib(self) -> dict: ...                       # P2, R0_rect, Tr_velo_to_cam
+    def load_pose_hint(self, idx: int) -> dict | None: ...  # GPS/IMU, optional
+```
+
+Planned loaders:
+
+- `KITTIRawLoader` — KITTI raw drives (done)
+- `KITTIOdometryLoader` — KITTI odometry sequences (done)
+- `NuScenesLoader` — nuScenes dataset
+- `EuRoCLoader` — EuRoC MAV dataset (camera + IMU, no LiDAR)
+- `ROSBagLoader` — any ROS bag with standard sensor topics
+
+## Planned: Config-driven pipeline
+
+```yaml
+dataset:
+  type: kitti_raw
+  data_path: data/kitti/raw
+  date: "2011_09_26"
+  drive: "2011_09_26_drive_0001"
+
+pipeline:
+  voxel_size: 0.2
+  orb_features: 2000
+  ekf_dt: 0.1
+
+output:
+  trajectory: results/trajectory.txt
+  map: results/map.pcd
+```
+
+## Quickstart (KITTI Raw)
 
 ```bash
-pip install -r requirements.txt
+conda env create -f environment.yml
+conda activate sensor-fusion
+
+# Download KITTI raw drive
+bash scripts/download_kitti_drive.sh
+
+# Run full pipeline
+python sensor-fusion-3d/src/reconstruction/build_map.py \
+  --data_path data/kitti/raw \
+  --date 2011_09_26 \
+  --drive 2011_09_26_drive_0001
 ```
 
-## Dataset
+## Tech stack
 
-Download KITTI odometry dataset: https://www.cvlibs.net/datasets/kitti/eval_odometry.php
-
-Place files under `data/kitti/`.
-
-## Usage
-
-```bash
-# Stage 1: Ingest data
-python src/preprocessing/ingest.py --dataset kitti --sequence 00
-
-# Stage 2: Calibration
-python src/calibration/calibrate.py --sequence 00
-
-# Stage 3: Localization
-python src/localization/odometry.py --sequence 00
-
-# Stage 4: Reconstruction
-python src/reconstruction/build_map.py --sequence 00
-
-# Evaluate
-python src/evaluation/evaluate.py --sequence 00
-```
-
-## Tech Stack
-
-- Python, NumPy, OpenCV, Open3D
-- Optional: PyTorch, ROS
-- Unreal Engine 5 (Stage 6)
+- Python 3.11
+- OpenCV — feature detection, essential matrix, pose recovery
+- Open3D — point cloud processing and visualization
+- NumPy / SciPy — linear algebra, EKF
+- Matplotlib — trajectory plots
