@@ -3,13 +3,13 @@ Stage 1 — Data Ingestion
 Load and synchronize RGB images, LiDAR point clouds, and IMU/GPS data.
 """
 
-import os
 import numpy as np
 import cv2
 from pathlib import Path
+from src.io.base_loader import BaseLoader
 
 
-class KITTILoader:
+class KITTILoader(BaseLoader):
     """Loads KITTI odometry dataset sequences."""
 
     def __init__(self, base_path: str, sequence: str):
@@ -23,9 +23,7 @@ class KITTILoader:
         self.calib_file = self.seq_path / "calib.txt"
         self.times_file = self.seq_path / "times.txt"
 
-        self.timestamps = self._load_timestamps()
-
-    def _load_timestamps(self) -> np.ndarray:
+    def load_timestamps(self) -> np.ndarray:
         return np.loadtxt(self.times_file)
 
     def load_image(self, idx: int) -> np.ndarray:
@@ -37,6 +35,17 @@ class KITTILoader:
         path = self.lidar_dir / f"{idx:06d}.bin"
         return np.fromfile(str(path), dtype=np.float32).reshape(-1, 4)
 
+    def load_calib(self) -> dict:
+        calib = {}
+        with open(self.calib_file) as f:
+            for line in f:
+                key, *vals = line.strip().split()
+                calib[key.rstrip(":")] = np.array(vals, dtype=np.float64)
+        calib["P2"] = calib["P2"].reshape(3, 4)
+        calib["R0_rect"] = calib["R0_rect"].reshape(3, 3)
+        calib["Tr_velo_to_cam"] = calib["Tr_velo_to_cam"].reshape(3, 4)
+        return calib
+
     def load_poses(self) -> np.ndarray:
         """Returns (N, 3, 4) ground truth poses."""
         raw = np.loadtxt(self.poses_path)
@@ -46,17 +55,16 @@ class KITTILoader:
         return len(list(self.image_dir.glob("*.png")))
 
 
-class KITTIRawLoader:
+class KITTIRawLoader(BaseLoader):
     """
     Loads KITTI raw dataset drives, e.g. 2011_09_26_drive_0001_sync.
     Expected layout:
         base_path/
           2011_09_26/
             2011_09_26_drive_0001_sync/
-              image_02/data/*.png   (left color)
+              image_02/data/*.png
               velodyne_points/data/*.bin
-              oxts/data/*.txt       (GPS/IMU)
-              oxts/timestamps.txt
+              oxts/data/*.txt
             calib_cam_to_cam.txt
             calib_imu_to_velo.txt
             calib_velo_to_cam.txt
@@ -73,12 +81,14 @@ class KITTIRawLoader:
         self.lidar_dir = self.drive_path / "velodyne_points" / "data"
         self.oxts_dir  = self.drive_path / "oxts" / "data"
 
-        # Calibration files live one level up (date folder)
         self.calib_cam_to_cam  = self.base / "calib_cam_to_cam.txt"
         self.calib_velo_to_cam = self.base / "calib_velo_to_cam.txt"
         self.calib_imu_to_velo = self.base / "calib_imu_to_velo.txt"
 
         self._frames = sorted(self.image_dir.glob("*.png"))
+
+    def __len__(self):
+        return len(self._frames)
 
     def load_image(self, idx: int) -> np.ndarray:
         return cv2.imread(str(self._frames[idx]))
@@ -87,6 +97,10 @@ class KITTIRawLoader:
         """Returns (N, 4) array: x, y, z, intensity."""
         path = self.lidar_dir / self._frames[idx].name.replace(".png", ".bin")
         return np.fromfile(str(path), dtype=np.float32).reshape(-1, 4)
+
+    def load_pose_hint(self, idx: int) -> dict:
+        """Returns GPS/IMU data as a BaseLoader-compatible dict."""
+        return self.load_oxts(idx)
 
     def load_oxts(self, idx: int) -> dict:
         """Returns GPS/IMU data as a dict for the given frame."""
@@ -103,10 +117,7 @@ class KITTIRawLoader:
         return dict(zip(keys, vals))
 
     def load_calib(self) -> dict:
-        """
-        Parse raw calib files and return a calib dict compatible with
-        load_kitti_calib() consumers (P2, R0_rect, Tr_velo_to_cam).
-        """
+        """Parse raw calib files into a standard calib dict."""
         def parse_file(path):
             data = {}
             with open(path) as f:
@@ -118,30 +129,21 @@ class KITTIRawLoader:
                     try:
                         data[key.rstrip(":")] = np.array(vals, dtype=np.float64)
                     except ValueError:
-                        pass  # skip non-numeric header lines like calib_date
+                        pass
             return data
 
-        cam = parse_file(self.calib_cam_to_cam)
+        cam  = parse_file(self.calib_cam_to_cam)
         velo = parse_file(self.calib_velo_to_cam)
-        imu = parse_file(self.calib_imu_to_velo)
+        imu  = parse_file(self.calib_imu_to_velo)
 
         calib = {}
-        calib["P2"] = cam["P_rect_02"].reshape(3, 4)
-        calib["R0_rect"] = cam["R_rect_00"].reshape(3, 3)
-
-        R = velo["R"].reshape(3, 3)
-        T = velo["T"].reshape(3, 1)
-        calib["Tr_velo_to_cam"] = np.hstack([R, T])  # (3, 4)
-
-        # IMU to velo transform (3x4)
-        Ri = imu["R"].reshape(3, 3)
-        Ti = imu["T"].reshape(3, 1)
-        calib["imu_to_velo"] = np.hstack([Ri, Ti])  # (3, 4)
-
+        calib["P2"]             = cam["P_rect_02"].reshape(3, 4)
+        calib["R0_rect"]        = cam["R_rect_00"].reshape(3, 3)
+        calib["Tr_velo_to_cam"] = np.hstack([velo["R"].reshape(3, 3), velo["T"].reshape(3, 1)])
+        calib["imu_to_velo"]    = np.hstack([imu["R"].reshape(3, 3),  imu["T"].reshape(3, 1)])
         return calib
 
-    def __len__(self):
-        return len(self._frames)
+
 
 
 if __name__ == "__main__":
@@ -150,9 +152,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["odometry", "raw"], default="raw")
     parser.add_argument("--data_path", default="data/kitti/raw")
-    # odometry args
     parser.add_argument("--sequence", default="00")
-    # raw args
     parser.add_argument("--date", default="2011_09_26")
     parser.add_argument("--drive", default="2011_09_26_drive_0001")
     args = parser.parse_args()
@@ -160,18 +160,18 @@ if __name__ == "__main__":
     if args.mode == "raw":
         loader = KITTIRawLoader(args.data_path, args.date, args.drive)
         print(f"Raw drive {args.drive}: {len(loader)} frames")
-        img = loader.load_image(0)
-        pts = loader.load_lidar(0)
-        oxts = loader.load_oxts(0)
+        img   = loader.load_image(0)
+        pts   = loader.load_lidar(0)
+        oxts  = loader.load_pose_hint(0)
         calib = loader.load_calib()
-        print(f"Image shape: {img.shape}")
-        print(f"LiDAR points: {pts.shape[0]}")
-        print(f"GPS lat/lon: {oxts['lat']:.6f}, {oxts['lon']:.6f}")
-        print(f"P2 matrix:\n{calib['P2']}")
+        print(f"Image shape:    {img.shape}")
+        print(f"LiDAR points:   {pts.shape[0]}")
+        print(f"GPS lat/lon:    {oxts['lat']:.6f}, {oxts['lon']:.6f}")
+        print(f"P2:\n{calib['P2']}")
     else:
         loader = KITTILoader(args.data_path, args.sequence)
         print(f"Sequence {args.sequence}: {len(loader)} frames")
         img = loader.load_image(0)
         pts = loader.load_lidar(0)
-        print(f"Image shape: {img.shape}")
+        print(f"Image shape:  {img.shape}")
         print(f"LiDAR points: {pts.shape[0]}")

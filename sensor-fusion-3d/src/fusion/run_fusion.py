@@ -36,27 +36,42 @@ def run(data_path, date, drive, max_frames):
     vo_traj, gps_traj, ekf_traj = [], [], []
 
     # Anchor GPS origin at frame 0
-    oxts0  = loader.load_oxts(0)
+    oxts0      = loader.load_oxts(0)
     lat0, lon0 = oxts0["lat"], oxts0["lon"]
+    alt0       = oxts0["alt"]
+
+    # Initialize EKF state from first GPS fix (ENU frame)
+    gx0, gy0 = latlon_to_xy(oxts0["lat"], oxts0["lon"], lat0, lon0)
+    ekf.x[:3] = [gx0, gy0, 0.0]
 
     for i in range(n):
         frame = loader.load_image(i)
         oxts  = loader.load_oxts(i)
 
-        # --- VO ---
-        pose = vo.process_frame(frame)
-        vo_pos = pose[:, 3]          # translation column (x,y,z in camera frame)
+        # --- VO (camera frame, for trajectory visualization only) ---
+        pose   = vo.process_frame(frame)
+        vo_pos = pose[:, 3]
         vo_traj.append(vo_pos.copy())
 
-        # --- GPS (local XY, keep Z from altitude) ---
+        # --- GPS in local ENU metres ---
         gx, gy = latlon_to_xy(oxts["lat"], oxts["lon"], lat0, lon0)
-        gz = oxts["alt"] - oxts0["alt"]
+        gz     = oxts["alt"] - alt0
         gps_traj.append(np.array([gx, gy, gz]))
 
-        # --- EKF: predict with IMU accel, update with VO ---
-        accel = np.array([oxts["af"], oxts["al"], oxts["au"]])  # forward/left/up
-        ekf.predict(accel)
-        ekf.update_vo(vo_pos)
+        # --- Rotate IMU body-frame accel into ENU world frame using yaw ---
+        yaw = oxts["yaw"]
+        cos_y, sin_y = np.cos(yaw), np.sin(yaw)
+        # body forward/left → ENU east/north
+        af, al = oxts["af"], oxts["al"]
+        accel_enu = np.array([
+            cos_y * af - sin_y * al,   # East
+            sin_y * af + cos_y * al,   # North
+            oxts["au"]                 # Up
+        ])
+
+        # --- EKF: predict with ENU accel, update with GPS position ---
+        ekf.predict(accel_enu)
+        ekf.update_vo(np.array([gx, gy, gz]))   # GPS as position measurement
         ekf_traj.append(ekf.position.copy())
 
     vo_traj  = np.array(vo_traj)

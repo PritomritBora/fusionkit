@@ -23,8 +23,8 @@ class EKF:
         # Process noise
         self.Q = np.eye(self.n) * 0.01
 
-        # Measurement noise (VO position)
-        self.R_vo = np.eye(3) * 0.5
+        # Measurement noise — GPS accuracy ~2m
+        self.R_vo = np.eye(3) * 4.0
 
         # State transition
         self.F = np.eye(self.n)
