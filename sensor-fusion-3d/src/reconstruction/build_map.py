@@ -89,9 +89,10 @@ def accumulate_map(loader, poses: list, calib: dict, max_frames: int = 100,
         colors = np.full((len(pts), 3), 0.5)
         colors[colored] = img[v[colored], u[colored]][:, ::-1] / 255.0
 
+        # Keep only RGB-colored points (drop out-of-FOV grey points)
         pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(pts[:, :3])
-        pcd.colors = o3d.utility.Vector3dVector(colors)
+        pcd.points = o3d.utility.Vector3dVector(pts[colored, :3])
+        pcd.colors = o3d.utility.Vector3dVector(colors[colored])
 
         # LiDAR -> IMU -> world
         pcd.transform(poses[i] @ velo_to_imu)

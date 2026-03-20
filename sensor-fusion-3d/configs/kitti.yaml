@@ -1,0 +1,42 @@
+# FusionKit — KITTI Raw Drive Config
+# Run: python run.py --config configs/kitti.yaml
+
+dataset:
+  type: kitti_raw
+  data_path: data/kitti/raw
+  date: "2011_09_26"
+  drive: "2011_09_26_drive_0001"
+  max_frames: 108
+
+sensors:
+  camera: true
+  lidar: true
+  imu: true
+  gps: true
+
+fusion:
+  method: ekf          # ekf | vo_only
+  ekf_dt: 0.1
+
+reconstruction:
+  enabled: true
+  voxel_size: 0.2      # metres — smaller = denser but slower
+  type: pointcloud     # pointcloud | mesh
+
+evaluation:
+  enabled: true
+  metrics:
+    - ATE
+    - RTE
+    - drift
+
+output:
+  trajectory: results/trajectory.txt
+  map: results/map.pcd
+  plots_dir: results/
+
+visualize:
+  fusion_trajectory: true   # VO vs GPS vs EKF plot
+  point_cloud: true         # Open3D 3D viewer
+  birdseye: true            # 2D top-down map image
+  evaluation: true          # error plots
