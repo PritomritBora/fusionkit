@@ -1,0 +1,30 @@
+# Dataset — too large for git
+data/
+
+# Results — generated outputs
+results/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.egg-info/
+dist/
+build/
+
+# Point cloud / mesh files
+*.pcd
+*.ply
+*.obj
+*.fbx
+*.las
+*.laz
+
+# Conda / venv
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/

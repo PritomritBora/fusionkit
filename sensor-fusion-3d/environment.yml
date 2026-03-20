@@ -1,0 +1,15 @@
+name: sensor-fusion
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - scipy
+  - matplotlib
+  - pyyaml
+  - tqdm
+  - pip:
+    - opencv-python
+    - open3d
