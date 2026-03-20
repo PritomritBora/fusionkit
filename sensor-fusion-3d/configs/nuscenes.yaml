@@ -1,0 +1,49 @@
+# FusionKit — nuScenes Config
+# Run: python run.py --config configs/nuscenes.yaml
+#
+# Download nuScenes mini (~4 GB, free):
+#   https://www.nuscenes.org/nuscenes#download
+#   Extract to: data/nuscenes/
+#
+# Install devkit:
+#   pip install nuscenes-devkit pyquaternion
+
+dataset:
+  type: nuscenes
+  dataroot: data/v1.0-mini
+  version: "v1.0-mini"   # or "v1.0-trainval" for full dataset
+  scene_index: 7          # 0-9 for mini; pick any scene
+  max_frames: 39          # scene-0061 has 39 keyframes
+
+sensors:
+  camera: true    # CAM_FRONT
+  lidar: true     # LIDAR_TOP
+  imu: false      # nuScenes keyframes have no raw IMU — EKF uses ego_pose instead
+  gps: true       # synthesized from ego_pose translation
+
+fusion:
+  method: ekf
+  ekf_dt: 0.5     # nuScenes keyframes are ~2 Hz (0.5s apart)
+
+reconstruction:
+  enabled: true
+  voxel_size: 0.2
+  type: pointcloud
+
+evaluation:
+  enabled: true
+  metrics:
+    - ATE
+    - RTE
+    - drift
+
+output:
+  trajectory: results/nuscenes_trajectory.txt
+  map: results/nuscenes_map.pcd
+  plots_dir: results/
+
+visualize:
+  fusion_trajectory: true
+  point_cloud: true
+  birdseye: true
+  evaluation: true

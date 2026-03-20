@@ -13,3 +13,5 @@ dependencies:
   - pip:
     - opencv-python
     - open3d
+    - nuscenes-devkit
+    - pyquaternion

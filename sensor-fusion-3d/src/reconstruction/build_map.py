@@ -60,22 +60,41 @@ def accumulate_map(loader, poses: list, calib: dict, max_frames: int = 100,
                    voxel_size: float = 0.2) -> o3d.geometry.PointCloud:
     """
     Accumulate RGB-colored LiDAR frames into a single global point cloud.
-    Poses are IMU world-frame transforms. LiDAR points go: velo -> IMU -> world.
+
+    For KITTI: poses are IMU world-frame transforms, chain is LiDAR→IMU→world.
+    For nuScenes: if loader has load_ego_poses(), uses exact ego quaternion
+                  transforms and chain is LiDAR→ego→world.
     """
     from src.calibration.calibrate import lidar_to_camera
 
-    # LiDAR to IMU transform (velo_to_imu = inv(imu_to_velo))
+    # Use exact ego poses if the loader provides them (nuScenes)
+    if hasattr(loader, 'load_ego_poses'):
+        ego_poses = loader.load_ego_poses()
+        use_ego_poses = True
+    else:
+        ego_poses = None
+        use_ego_poses = False
+
+    # LiDAR-to-ego transform (T_ego_from_lidar) for nuScenes
+    # LiDAR-to-IMU transform (velo_to_imu) for KITTI
     imu_to_velo = calib.get("imu_to_velo")  # (3,4)
     if imu_to_velo is not None:
         Tv = np.eye(4)
         Tv[:3, :] = imu_to_velo
-        velo_to_imu = np.linalg.inv(Tv)
+        if use_ego_poses:
+            # For nuScenes: imu_to_velo = inv(T_ego_from_lidar), so
+            # T_ego_from_lidar = inv(imu_to_velo)
+            T_ego_from_lidar = np.linalg.inv(Tv)
+        else:
+            # For KITTI: velo_to_imu = inv(imu_to_velo)
+            T_ego_from_lidar = np.linalg.inv(Tv)
     else:
-        velo_to_imu = np.eye(4)  # fallback
+        T_ego_from_lidar = np.eye(4)
 
     global_pcd = o3d.geometry.PointCloud()
 
-    for i in tqdm(range(min(max_frames, len(loader), len(poses))), desc="Building map"):
+    n = min(max_frames, len(loader), len(ego_poses) if use_ego_poses else len(poses))
+    for i in tqdm(range(n), desc="Building map"):
         pts = loader.load_lidar(i)
         img = loader.load_image(i)
         h, w = img.shape[:2]
@@ -89,13 +108,13 @@ def accumulate_map(loader, poses: list, calib: dict, max_frames: int = 100,
         colors = np.full((len(pts), 3), 0.5)
         colors[colored] = img[v[colored], u[colored]][:, ::-1] / 255.0
 
-        # Keep only RGB-colored points (drop out-of-FOV grey points)
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(pts[colored, :3])
         pcd.colors = o3d.utility.Vector3dVector(colors[colored])
 
-        # LiDAR -> IMU -> world
-        pcd.transform(poses[i] @ velo_to_imu)
+        # Apply world transform: LiDAR → ego/IMU → world
+        world_pose = ego_poses[i] if use_ego_poses else poses[i]
+        pcd.transform(world_pose @ T_ego_from_lidar)
         global_pcd += pcd
 
         if i % 10 == 0:
@@ -103,7 +122,6 @@ def accumulate_map(loader, poses: list, calib: dict, max_frames: int = 100,
 
     global_pcd = global_pcd.voxel_down_sample(voxel_size)
 
-    # Statistical outlier removal — removes isolated noisy points
     print("Removing outliers...")
     global_pcd, _ = global_pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
 

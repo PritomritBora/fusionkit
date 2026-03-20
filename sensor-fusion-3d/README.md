@@ -32,9 +32,9 @@ GPS/IMU ─────┘                                    ↗
 | Visual odometry | done |
 | EKF fusion (VO + GPS + IMU) | done |
 | 3D map reconstruction | done |
-| Evaluation (ATE/RTE) | pending |
-| Mesh export | pending |
-| nuScenes loader | planned |
+| Config-driven `run.py` | done |
+| Evaluation (ATE/RTE) | done |
+| nuScenes loader | done — needs data |
 | EuRoC loader | planned |
 | ROS bag loader | planned |
 
@@ -89,10 +89,20 @@ conda activate sensor-fusion
 bash scripts/download_kitti_drive.sh
 
 # Run full pipeline
-python sensor-fusion-3d/src/reconstruction/build_map.py \
-  --data_path data/kitti/raw \
-  --date 2011_09_26 \
-  --drive 2011_09_26_drive_0001
+python sensor-fusion-3d/run.py --config sensor-fusion-3d/configs/kitti.yaml
+```
+
+## Quickstart (nuScenes)
+
+```bash
+# Download nuScenes mini (~4 GB, free account required)
+bash sensor-fusion-3d/scripts/download_nuscenes.sh   # prints instructions
+
+# Verify loader before running
+python sensor-fusion-3d/scripts/test_nuscenes_loader.py
+
+# Run full pipeline — same code, different config
+python sensor-fusion-3d/run.py --config sensor-fusion-3d/configs/nuscenes.yaml
 ```
 
 ## Tech stack

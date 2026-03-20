@@ -137,7 +137,33 @@ Output: `results/map_2011_09_26_drive_0001.pcd`, `results/map_birdseye.png`
 
 ## Pending Stages
 
-### Mesh Export (`src/reconstruction/mesh_export.py`)
+### nuScenes Support (Phase 2)
+**Status: Ready to test — needs data**
+
+`NuScenesLoader` is fully implemented in `src/io/nuscenes_loader.py`:
+- CAM_FRONT images (1600x900)
+- LIDAR_TOP point clouds (N, 5) → (N, 4) dropping ring channel
+- Calibration from sensor metadata (intrinsics + LiDAR-to-camera extrinsic)
+- `load_pose_hint()` from ego_pose — XY metres encoded as synthetic lat/lon for EKF compatibility
+- `run.py` fully wired: `build_loader()` + `run_with_loader()` handle nuScenes generically
+
+**To run:**
+```bash
+# 1. Download nuScenes mini (~4 GB, free):
+#    https://www.nuscenes.org/nuscenes#download
+#    Extract to: data/nuscenes/
+
+# 2. Install devkit (already in requirements.txt):
+pip install nuscenes-devkit pyquaternion
+
+# 3. Run:
+python sensor-fusion-3d/run.py --config sensor-fusion-3d/configs/nuscenes.yaml
+```
+
+**Known nuScenes limitations:**
+- Keyframes only (~2 Hz) — VO will have fewer feature matches than KITTI's 10 Hz
+- No raw IMU per keyframe — EKF predict step uses zero acceleration (ego_pose only)
+- Synthetic lat/lon encoding means GPS reference is in metres, not degrees
 - Poisson surface reconstruction from point cloud
 - Export as `.obj` for Unreal Engine
 - **Recommendation**: skip mesh, export as `.las`/`.laz` instead and use Unreal's Lidar Point Cloud Plugin for better visual quality given the sparse/uneven point cloud

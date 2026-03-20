@@ -22,11 +22,15 @@ def build_loader(cfg: dict):
     if ds["type"] == "kitti_raw":
         from src.preprocessing.ingest import KITTIRawLoader
         return KITTIRawLoader(ds["data_path"], ds["date"], ds["drive"])
+    if ds["type"] == "nuscenes":
+        from src.io.nuscenes_loader import NuScenesLoader
+        return NuScenesLoader(ds["dataroot"], ds.get("version", "v1.0-mini"),
+                              ds.get("scene_index", 0))
     raise ValueError(f"Unknown dataset type: {ds['type']}")
 
 
 def run_pipeline(cfg: dict):
-    from src.fusion.run_fusion import run as run_fusion, plot as plot_fusion
+    from src.fusion.run_fusion import run as run_fusion_kitti, run_with_loader, plot as plot_fusion
     from src.reconstruction.build_map import accumulate_map, imu_pose
     from src.evaluation.evaluate import ate, rte, final_drift, align_trajectories, plot_evaluation
 
@@ -34,12 +38,20 @@ def run_pipeline(cfg: dict):
     vis     = cfg.get("visualize", {})
     out     = cfg.get("output", {})
     max_f   = ds.get("max_frames", 108)
+    ekf_dt  = cfg.get("fusion", {}).get("ekf_dt", 0.1)
 
     # ── Step 1: Fusion (VO + GPS + IMU → trajectories) ──────────────────────
     print("\n[1/4] Running sensor fusion...")
-    vo_traj, gps_traj, ekf_traj, vo_poses = run_fusion(
-        ds["data_path"], ds["date"], ds["drive"], max_f
-    )
+
+    if ds["type"] == "kitti_raw":
+        # Legacy path — keeps existing KITTI behaviour unchanged
+        vo_traj, gps_traj, ekf_traj, vo_poses = run_fusion_kitti(
+            ds["data_path"], ds["date"], ds["drive"], max_f
+        )
+    else:
+        # Generic path — works for any BaseLoader
+        loader = build_loader(cfg)
+        vo_traj, gps_traj, ekf_traj, vo_poses = run_with_loader(loader, max_f, ekf_dt)
 
     # Save trajectory
     traj_path = out.get("trajectory", "results/trajectory.txt")
@@ -90,13 +102,18 @@ def run_pipeline(cfg: dict):
         print("\n[3/4] Building 3D map...")
         loader = build_loader(cfg)
         calib  = loader.load_calib()
-        oxts0  = loader.load_oxts(0)
-        lat0, lon0 = oxts0["lat"], oxts0["lon"]
 
-        poses = []
-        for i in range(min(max_f, len(loader))):
-            oxts = loader.load_oxts(i)
-            poses.append(imu_pose(oxts, oxts0, lat0, lon0))
+        # Build world poses — use exact ego quaternions if available (nuScenes),
+        # otherwise fall back to GPS+IMU Euler angles (KITTI)
+        if hasattr(loader, 'load_ego_poses'):
+            poses = loader.load_ego_poses()
+        else:
+            pose0      = loader.load_pose_hint(0)
+            lat0, lon0 = pose0["lat"], pose0["lon"]
+            poses = []
+            for i in range(min(max_f, len(loader))):
+                hint = loader.load_pose_hint(i)
+                poses.append(imu_pose(hint, pose0, lat0, lon0))
 
         import open3d as o3d
         global_map = accumulate_map(
@@ -115,9 +132,10 @@ def run_pipeline(cfg: dict):
             pts  = np.asarray(global_map.points)
             cols = np.asarray(global_map.colors)
             idx  = np.random.choice(len(pts), min(50000, len(pts)), replace=False)
+            # World frame: X=East, Y=alt, Z=North (from imu_pose)
             plt.figure(figsize=(14, 6))
             plt.scatter(pts[idx, 0], pts[idx, 2], c=cols[idx], s=0.3)
-            plt.title("Bird's eye view (top-down)")
+            plt.title("Bird's eye view (top-down, X=East, Z=North)")
             plt.xlabel("X / East (m)")
             plt.ylabel("Z / North (m)")
             plt.axis("equal")
@@ -143,8 +161,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    ds = cfg['dataset']
+    ds_id = ds.get('drive') or f"scene_{ds.get('scene_index', 0)}"
     print(f"FusionKit — loaded config: {args.config}")
-    print(f"  Dataset : {cfg['dataset']['type']} / {cfg['dataset'].get('drive', '')}")
-    print(f"  Frames  : {cfg['dataset'].get('max_frames', 'all')}")
+    print(f"  Dataset : {ds['type']} / {ds_id}")
+    print(f"  Frames  : {ds.get('max_frames', 'all')}")
 
     run_pipeline(cfg)

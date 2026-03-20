@@ -55,11 +55,11 @@ run.py                    ← single entry point, config-driven
 ## Phase 1 — Config-driven pipeline (current focus)
 > Goal: "same code, different configs"
 
-- [ ] Wire `KITTIRawLoader` to inherit `BaseLoader`
-- [ ] Create `run.py` — single entry point that reads a YAML config and runs the full pipeline
-- [ ] Create `configs/kitti.yaml` — KITTI raw drive config
-- [ ] Config controls: which sensors, fusion method, reconstruction type, output options
-- [ ] Update README with `run.py` usage
+- [x] Wire `KITTIRawLoader` to inherit `BaseLoader`
+- [x] Create `run.py` — single entry point that reads a YAML config and runs the full pipeline
+- [x] Create `configs/kitti.yaml` — KITTI raw drive config
+- [x] Config controls: which sensors, fusion method, reconstruction type, output options
+- [x] Update README with `run.py` usage
 
 **Done when:** `python run.py --config configs/kitti.yaml` runs the full pipeline end-to-end.
 
@@ -68,12 +68,12 @@ run.py                    ← single entry point, config-driven
 ## Phase 2 — nuScenes support
 > Goal: second dataset working with zero pipeline changes
 
-- [ ] Implement `NuScenesLoader(BaseLoader)`
+- [x] Implement `NuScenesLoader(BaseLoader)`
   - images from 6 cameras (use front camera)
   - LiDAR from `LIDAR_TOP`
   - IMU + GPS from CAN bus data
   - calibration from sensor metadata
-- [ ] Create `configs/nuscenes.yaml`
+- [x] Create `configs/nuscenes.yaml`
 - [ ] Test on a mini scene (nuScenes mini is ~4GB, free download)
 - [ ] Verify same VO + EKF + map pipeline produces valid output
 
@@ -130,9 +130,11 @@ run.py                    ← single entry point, config-driven
 | EKF fusion | done | VO + GPS + IMU, trajectory plot |
 | 3D map reconstruction | done | GPS+IMU poses, RGB-colored point cloud |
 | Evaluation (ATE/RTE) | done | VO: 3.6m ATE, EKF: 28m ATE (frame mismatch known issue) |
-| BaseLoader interface | scaffolded | needs wiring |
-| Config-driven run.py | not started | Phase 1 |
-| nuScenes loader | not started | Phase 2 |
+| BaseLoader interface | done | abstract base, all loaders inherit |
+| Config-driven run.py | done | `python run.py --config configs/kitti.yaml` works |
+| nuScenes loader | done | NuScenesLoader implemented, wired to run.py |
+| nuScenes config | done | configs/nuscenes.yaml |
+| nuScenes tested | pending | needs data download |
 | ROS bag loader | not started | Phase 3 |
 | Gaussian splats | not started | Phase 4 |
 
